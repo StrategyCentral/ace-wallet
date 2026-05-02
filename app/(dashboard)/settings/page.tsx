@@ -12,7 +12,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     fetch('/api/auth/me').then(r => r.json()).then(setUser)
-    fetch('/api/categories').then(r => r.json()).then(setCats)
+    fetch('/api/categories').then(r => r.json()).then(d => setCats(d.categories || []))
   }, [])
 
   async function saveCat() {
@@ -20,7 +20,7 @@ export default function SettingsPage() {
     await fetch('/api/categories', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({...catForm, budget_limit: parseFloat(catForm.budget_limit)||0}) })
     setSaving(false); setShowCatModal(false)
     setCatForm({ name: '', type: 'expense', color: '#8b5cf6', icon: 'tag', budget_limit: '' })
-    fetch('/api/categories').then(r => r.json()).then(setCats)
+    fetch('/api/categories').then(r => r.json()).then(d => setCats(d.categories || []))
   }
 
   const incomeCats = cats.filter(c => c.type === 'income')

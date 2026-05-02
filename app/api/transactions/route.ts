@@ -1,49 +1,89 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
-import { getAuthUser } from '@/lib/auth'
+import { verifyToken } from '@/lib/auth'
+import { getTaxConfig, type TaxFramework } from '@/lib/tax'
+
+function getUser(req: NextRequest) {
+  const token = req.cookies.get('ace_token')?.value
+  if (!token) return null
+  return verifyToken(token)
+}
 
 export async function GET(req: NextRequest) {
-  const user = getAuthUser()
+  const user = getUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { searchParams } = new URL(req.url)
-  const month = searchParams.get('month') // YYYY-MM
+  const month = searchParams.get('month')
   const type = searchParams.get('type')
+  const scope = searchParams.get('scope')
+  const business_id = searchParams.get('business_id')
   const db = getDb()
 
-  let q = `SELECT t.*, c.name as category_name, c.color as category_color, c.icon as category_icon
-    FROM transactions t LEFT JOIN categories c ON t.category_id = c.id
+  let query = `SELECT t.*, c.name as category_name, c.color, 
+    b.name as business_name, a.name as account_name, s.name as stream_name
+    FROM transactions t
+    LEFT JOIN categories c ON c.id = t.category_id
+    LEFT JOIN businesses b ON b.id = t.business_id
+    LEFT JOIN accounts a ON a.id = t.account_id
+    LEFT JOIN income_streams s ON s.id = t.income_stream_id
     WHERE t.user_id = ?`
-  const params: any[] = [user.userId]
+  const params: (string | number)[] = [user.userId]
 
-  if (month) { q += ' AND strftime(\'%Y-%m\', t.date) = ?'; params.push(month) }
-  if (type) { q += ' AND t.type = ?'; params.push(type) }
-  q += ' ORDER BY t.date DESC, t.id DESC'
+  if (month) { query += ` AND strftime('%Y-%m', t.date) = ?`; params.push(month) }
+  if (type && type !== 'all') { query += ` AND t.type = ?`; params.push(type) }
+  if (scope) { query += ` AND t.scope = ?`; params.push(scope) }
+  if (business_id) { query += ` AND t.business_id = ?`; params.push(business_id) }
 
-  const rows = db.prepare(q).all(...params)
-  return NextResponse.json(rows)
+  query += ` ORDER BY t.date DESC, t.created_at DESC`
+  const transactions = db.prepare(query).all(...params)
+  return NextResponse.json({ transactions })
 }
 
 export async function POST(req: NextRequest) {
-  const user = getAuthUser()
+  const user = getUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  try {
-    const body = await req.json()
-    const { type, amount, description, category_id, date, recurring, recur_interval, notes } = body
-    const db = getDb()
-    const result = db.prepare(
-      'INSERT INTO transactions (user_id, type, amount, description, category_id, date, recurring, recur_interval, notes) VALUES (?,?,?,?,?,?,?,?,?)'
-    ).run(user.userId, type, amount, description, category_id || null, date, recurring ? 1 : 0, recur_interval || null, notes || null)
-    return NextResponse.json({ id: result.lastInsertRowid, success: true })
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 })
+  const { type, amount, description, category_id, date, notes, scope, business_id, account_id,
+    income_stream_id, is_tax_deductible, gst_inclusive, currency } = await req.json()
+
+  if (!type || !amount || !description || !date) {
+    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
+
+  const db = getDb()
+
+  // Calculate tax amount if GST inclusive
+  let taxAmount = 0
+  if (gst_inclusive && scope === 'business' && business_id) {
+    const biz = db.prepare('SELECT tax_framework FROM businesses WHERE id = ?').get(business_id) as { tax_framework: string } | undefined
+    if (biz) {
+      const config = getTaxConfig(biz.tax_framework as TaxFramework)
+      if (config.rate > 0) {
+        taxAmount = Math.round((amount - amount / (1 + config.rate)) * 100) / 100
+      }
+    }
+  }
+
+  const id = (db.prepare(`
+    INSERT INTO transactions (user_id, type, amount, description, category_id, date, notes, scope, business_id, account_id, income_stream_id, is_tax_deductible, gst_inclusive, tax_amount, currency)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    user.userId, type, amount, description,
+    category_id || null, date, notes || '',
+    scope || 'personal', business_id || null, account_id || null,
+    income_stream_id || null,
+    is_tax_deductible ? 1 : 0, gst_inclusive ? 1 : 0, taxAmount,
+    currency || 'AUD'
+  )).lastInsertRowid
+
+  const transaction = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id)
+  return NextResponse.json({ transaction })
 }
 
 export async function DELETE(req: NextRequest) {
-  const user = getAuthUser()
+  const user = getUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await req.json()
   const db = getDb()
   db.prepare('DELETE FROM transactions WHERE id = ? AND user_id = ?').run(id, user.userId)
-  return NextResponse.json({ success: true })
+  return NextResponse.json({ ok: true })
 }
