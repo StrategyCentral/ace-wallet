@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   const user = getUser(req)
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { type, amount, description, category_id, date, notes, scope, business_id, account_id,
-    income_stream_id, is_tax_deductible, gst_inclusive, currency } = await req.json()
+    income_stream_id, is_tax_deductible, gst_inclusive, currency, recurring, recur_interval } = await req.json()
 
   if (!type || !amount || !description || !date) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -64,15 +64,17 @@ export async function POST(req: NextRequest) {
   }
 
   const id = (db.prepare(`
-    INSERT INTO transactions (user_id, type, amount, description, category_id, date, notes, scope, business_id, account_id, income_stream_id, is_tax_deductible, gst_inclusive, tax_amount, currency)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO transactions (user_id, type, amount, description, category_id, date, notes, scope, business_id, account_id, income_stream_id, is_tax_deductible, gst_inclusive, tax_amount, currency, recurring, recur_interval, recur_start_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     user.userId, type, amount, description,
     category_id || null, date, notes || '',
     scope || 'personal', business_id || null, account_id || null,
     income_stream_id || null,
     is_tax_deductible ? 1 : 0, gst_inclusive ? 1 : 0, taxAmount,
-    currency || 'AUD'
+    currency || 'AUD',
+    recurring ? 1 : 0, recur_interval || null,
+    recurring ? date : null
   )).lastInsertRowid
 
   const transaction = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id)

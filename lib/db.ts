@@ -119,6 +119,7 @@ function initSchema(db: Database.Database) {
       date TEXT NOT NULL,
       recurring INTEGER DEFAULT 0,
       recur_interval TEXT,
+      recur_start_date TEXT,
       is_tax_deductible INTEGER DEFAULT 0,
       gst_inclusive INTEGER DEFAULT 0,
       tax_amount REAL DEFAULT 0,
@@ -290,6 +291,7 @@ function runMigrations(db: Database.Database) {
   if (!txCols.includes('gst_inclusive')) db.exec("ALTER TABLE transactions ADD COLUMN gst_inclusive INTEGER DEFAULT 0")
   if (!txCols.includes('tax_amount')) db.exec("ALTER TABLE transactions ADD COLUMN tax_amount REAL DEFAULT 0")
   if (!txCols.includes('platform_source')) db.exec("ALTER TABLE transactions ADD COLUMN platform_source TEXT")
+  if (!txCols.includes('recur_start_date')) db.exec("ALTER TABLE transactions ADD COLUMN recur_start_date TEXT")
   if (!txCols.includes('platform_transaction_id')) db.exec("ALTER TABLE transactions ADD COLUMN platform_transaction_id TEXT")
 
   const catCols = (db.prepare("PRAGMA table_info(categories)").all() as { name: string }[]).map(r => r.name)

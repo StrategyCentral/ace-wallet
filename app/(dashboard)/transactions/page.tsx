@@ -6,7 +6,7 @@ interface Transaction {
   category_id: number; category_name: string; color: string; notes: string
   scope: string; business_id: number | null; account_id: number | null; income_stream_id: number | null
   is_tax_deductible: number; gst_inclusive: number; business_name: string; account_name: string; stream_name: string
-  currency: string
+  currency: string; recurring: number; recur_interval: string
 }
 interface Category { id: number; name: string; type: string; color: string }
 interface Business { id: number; name: string }
@@ -16,6 +16,14 @@ interface Stream { id: number; name: string; business_id: number | null }
 const now = new Date()
 const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 
+const INTERVALS = [
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'fortnightly', label: 'Fortnightly' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'quarterly', label: 'Quarterly' },
+  { value: 'annually', label: 'Annually' },
+]
+
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -23,13 +31,14 @@ export default function TransactionsPage() {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [streams, setStreams] = useState<Stream[]>([])
   const [month, setMonth] = useState(defaultMonth)
-  const [filter, setFilter] = useState<'all'|'income'|'expense'|'business'>('all')
+  const [filter, setFilter] = useState<'all'|'income'|'expense'|'business'|'recurring'>('all')
   const [showModal, setShowModal] = useState(false)
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState({
     type: 'expense', amount: '', description: '', category_id: '', date: new Date().toISOString().split('T')[0],
     scope: 'personal', business_id: '', account_id: '', income_stream_id: '',
-    is_tax_deductible: false, gst_inclusive: false, notes: '', currency: 'AUD'
+    is_tax_deductible: false, gst_inclusive: false, notes: '', currency: 'AUD',
+    recurring: false, recur_interval: 'monthly',
   })
 
   useEffect(() => { fetchAll() }, [month])
@@ -51,9 +60,12 @@ export default function TransactionsPage() {
   }
 
   function openAdd() {
-    setForm({ type: 'expense', amount: '', description: '', category_id: '', date: new Date().toISOString().split('T')[0],
+    setForm({
+      type: 'expense', amount: '', description: '', category_id: '', date: new Date().toISOString().split('T')[0],
       scope: 'personal', business_id: '', account_id: '', income_stream_id: '',
-      is_tax_deductible: false, gst_inclusive: false, notes: '', currency: 'AUD' })
+      is_tax_deductible: false, gst_inclusive: false, notes: '', currency: 'AUD',
+      recurring: false, recur_interval: 'monthly',
+    })
     setShowModal(true)
   }
 
@@ -70,6 +82,8 @@ export default function TransactionsPage() {
         income_stream_id: form.income_stream_id ? parseInt(form.income_stream_id) : null,
         is_tax_deductible: form.is_tax_deductible ? 1 : 0,
         gst_inclusive: form.gst_inclusive ? 1 : 0,
+        recurring: form.recurring ? 1 : 0,
+        recur_interval: form.recurring ? form.recur_interval : null,
       })
     })
     setShowModal(false); fetchAll(); setLoading(false)
@@ -82,11 +96,14 @@ export default function TransactionsPage() {
   }
 
   const filteredCats = categories.filter(c => c.type === form.type)
+
   const visibleTx = transactions.filter(t => {
     if (filter === 'all') return true
     if (filter === 'business') return t.scope === 'business'
+    if (filter === 'recurring') return t.recurring === 1
     return t.type === filter
   })
+
   const income = transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
   const expenses = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
   const bizIncome = transactions.filter(t => t.type === 'income' && t.scope === 'business').reduce((s, t) => s + t.amount, 0)
@@ -123,7 +140,7 @@ export default function TransactionsPage() {
 
       {/* Filter tabs */}
       <div className="flex gap-1 bg-ace-bg border border-ace-border rounded-xl p-1 mb-4 w-fit">
-        {[['all','All'],['income','Income'],['expense','Expenses'],['business','Business']].map(([v,l]) => (
+        {[['all','All'],['income','Income'],['expense','Expenses'],['business','Business'],['recurring','Recurring']].map(([v,l]) => (
           <button key={v} onClick={() => setFilter(v as typeof filter)}
             className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${filter === v ? 'bg-ace-card text-white' : 'text-ace-muted hover:text-white'}`}>{l}</button>
         ))}
@@ -143,7 +160,14 @@ export default function TransactionsPage() {
                 <div className="flex items-center gap-3">
                   <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: t.color || (t.type === 'income' ? '#10b981' : '#ef4444') }} />
                   <div>
-                    <p className="text-white text-sm font-medium">{t.description}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-white text-sm font-medium">{t.description}</p>
+                      {t.recurring === 1 && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-ace-purple/20 text-ace-purple border border-ace-purple/30">
+                          ↺ {t.recur_interval}
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 text-xs text-ace-muted flex-wrap">
                       <span>{t.date}</span>
                       {t.category_name && <span>• {t.category_name}</span>}
@@ -219,20 +243,50 @@ export default function TransactionsPage() {
                   className="w-full bg-ace-bg border border-ace-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-ace-cyan" />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-ace-muted text-sm block mb-1">Date</label>
+              {/* Date + Recurring */}
+              <div>
+                <label className="text-ace-muted text-sm block mb-1">Date</label>
+                <div className="flex items-center gap-3">
                   <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-                    className="w-full bg-ace-bg border border-ace-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-ace-cyan" />
+                    className="flex-1 bg-ace-bg border border-ace-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-ace-cyan" />
+                  <label className="flex items-center gap-2 cursor-pointer select-none whitespace-nowrap">
+                    <div onClick={() => setForm(f => ({ ...f, recurring: !f.recurring }))}
+                      className={`w-9 h-5 rounded-full transition-colors relative ${form.recurring ? 'bg-ace-purple' : 'bg-white/10'}`}>
+                      <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${form.recurring ? 'left-4' : 'left-0.5'}`} />
+                    </div>
+                    <span className="text-ace-muted text-sm">Recurring</span>
+                  </label>
                 </div>
-                <div>
-                  <label className="text-ace-muted text-sm block mb-1">Category</label>
-                  <select value={form.category_id} onChange={e => setForm(f => ({ ...f, category_id: e.target.value }))}
-                    className="w-full bg-ace-bg border border-ace-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-ace-cyan">
-                    <option value="">Select…</option>
-                    {filteredCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+              </div>
+
+              {/* Recurring interval — shown when toggled on */}
+              {form.recurring && (
+                <div className="bg-ace-purple/5 border border-ace-purple/20 rounded-xl p-4">
+                  <label className="text-ace-muted text-sm block mb-2">Repeats every</label>
+                  <div className="flex flex-wrap gap-2">
+                    {INTERVALS.map(i => (
+                      <button key={i.value} onClick={() => setForm(f => ({ ...f, recur_interval: i.value }))}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border ${form.recur_interval === i.value
+                          ? 'bg-ace-purple/20 text-ace-purple border-ace-purple/40'
+                          : 'bg-ace-bg border-ace-border text-ace-muted hover:text-white'}`}>
+                        {i.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-ace-muted text-xs mt-2">
+                    Starting {form.date} — next due dates will show on your Overview
+                  </p>
                 </div>
+              )}
+
+              {/* Category */}
+              <div>
+                <label className="text-ace-muted text-sm block mb-1">Category</label>
+                <select value={form.category_id} onChange={e => setForm(f => ({ ...f, category_id: e.target.value }))}
+                  className="w-full bg-ace-bg border border-ace-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-ace-cyan">
+                  <option value="">Select…</option>
+                  {filteredCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
               </div>
 
               {/* Account */}
@@ -291,6 +345,7 @@ export default function TransactionsPage() {
                   className="w-full bg-ace-bg border border-ace-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-ace-cyan" />
               </div>
             </div>
+
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowModal(false)} className="flex-1 py-2 text-sm border border-ace-border rounded-lg text-ace-muted hover:text-white transition-colors">Cancel</button>
               <button onClick={handleSave} disabled={loading || !form.amount || !form.description}
