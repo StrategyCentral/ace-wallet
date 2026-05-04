@@ -15,6 +15,14 @@ const NAV_GROUPS = [
     ]
   },
   {
+    label: 'Finance',
+    items: [
+      { href: '/buckets', label: 'Buckets', icon: '🪣' },
+      { href: '/debts', label: 'Debts', icon: '🎳' },
+      { href: '/resources', label: 'Resources', icon: '📚' },
+    ]
+  },
+  {
     label: 'Business',
     items: [
       { href: '/businesses', label: 'Businesses', icon: '🏢' },

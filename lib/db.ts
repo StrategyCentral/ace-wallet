@@ -204,6 +204,35 @@ function initSchema(db: Database.Database) {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+
+    CREATE TABLE IF NOT EXISTS debts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT DEFAULT 'other' CHECK(type IN ('credit_card','personal_loan','car_loan','student_loan','mortgage','buy_now_pay_later','medical','other')),
+      balance REAL NOT NULL,
+      original_balance REAL NOT NULL,
+      interest_rate REAL DEFAULT 0,
+      minimum_payment REAL NOT NULL,
+      due_day INTEGER DEFAULT 1,
+      lender TEXT,
+      color TEXT DEFAULT '#ef4444',
+      is_paid_off INTEGER DEFAULT 0,
+      paid_off_date TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS bucket_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      account_id INTEGER NOT NULL,
+      bucket TEXT NOT NULL CHECK(bucket IN ('blow_daily','blow_splurge','mojo_smile','mojo_fire','grow_super','grow_invest')),
+      UNIQUE(user_id, account_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS shopping_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       list_id INTEGER NOT NULL,
@@ -303,6 +332,35 @@ function runMigrations(db: Database.Database) {
   if (!subCols.includes('scope')) db.exec("ALTER TABLE subscriptions ADD COLUMN scope TEXT DEFAULT 'personal'")
   if (!subCols.includes('is_tax_deductible')) db.exec("ALTER TABLE subscriptions ADD COLUMN is_tax_deductible INTEGER DEFAULT 0")
 
+  // Ensure debts and bucket_assignments tables exist (safe to run multiple times)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS debts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT DEFAULT 'other',
+      balance REAL NOT NULL,
+      original_balance REAL NOT NULL,
+      interest_rate REAL DEFAULT 0,
+      minimum_payment REAL NOT NULL,
+      due_day INTEGER DEFAULT 1,
+      lender TEXT,
+      color TEXT DEFAULT '#ef4444',
+      is_paid_off INTEGER DEFAULT 0,
+      paid_off_date TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS bucket_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      account_id INTEGER NOT NULL,
+      bucket TEXT NOT NULL,
+      UNIQUE(user_id, account_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
+    );
+  `)
   const userCols = (db.prepare("PRAGMA table_info(users)").all() as { name: string }[]).map(r => r.name)
   if (!userCols.includes('country')) db.exec("ALTER TABLE users ADD COLUMN country TEXT DEFAULT 'AU'")
   if (!userCols.includes('currency')) db.exec("ALTER TABLE users ADD COLUMN currency TEXT DEFAULT 'AUD'")
