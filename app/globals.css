@@ -12,3 +12,21 @@ body {
 ::-webkit-scrollbar-track { background: #12121e; }
 ::-webkit-scrollbar-thumb { background: #1e1e2e; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #2a2a3e; }
+
+/* Date / time inputs — render the native picker icon in white on the dark theme */
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"],
+input[type="month"],
+input[type="week"] {
+  color-scheme: dark;
+}
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator,
+input[type="week"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.2);
+  cursor: pointer;
+  opacity: 0.9;
+}

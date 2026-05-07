@@ -67,6 +67,8 @@ export default function SubscriptionsPage() {
   const [editId, setEditId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(emptyForm())
+  const [pausingId, setPausingId] = useState<number | null>(null)
+  const [pauseUntil, setPauseUntil] = useState<string>('')
 
   async function load() {
     const url = filter === 'all' ? '/api/subscriptions' : `/api/subscriptions?status=${filter}`
@@ -136,6 +138,33 @@ export default function SubscriptionsPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, status }),
     })
+    load()
+  }
+
+  function openPauseModal(id: number) {
+    setPausingId(id)
+    setPauseUntil('')
+  }
+
+  function pausePreset(months: number | null) {
+    if (months === null) {
+      setPauseUntil('')
+      return
+    }
+    const d = new Date()
+    d.setMonth(d.getMonth() + months)
+    setPauseUntil(format(d, 'yyyy-MM-dd'))
+  }
+
+  async function confirmPause() {
+    if (!pausingId) return
+    await fetch('/api/subscriptions', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: pausingId, status: 'paused', pause_until: pauseUntil || null }),
+    })
+    setPausingId(null)
+    setPauseUntil('')
     load()
   }
 
@@ -226,6 +255,9 @@ export default function SubscriptionsPage() {
                     s.status === 'paused' ? 'text-ace-orange bg-ace-orange/10 border-ace-orange/20' :
                     'text-ace-muted bg-ace-muted/10 border-ace-muted/20'
                   }`}>{s.status}</span>
+                  {s.status === 'paused' && s.pause_until && (
+                    <span className="text-[10px] text-ace-orange/80">Resumes {s.pause_until}</span>
+                  )}
                   <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
                     s.scope === 'business'
                       ? 'text-ace-purple bg-ace-purple/10 border-ace-purple/20'
@@ -247,7 +279,7 @@ export default function SubscriptionsPage() {
               </div>
               <div className="flex gap-2 flex-wrap">
                 <button onClick={() => openEdit(s)} className="flex-1 py-1.5 text-xs rounded-lg border border-ace-cyan/20 text-ace-cyan hover:bg-ace-cyan/10 transition-colors">Edit</button>
-                {s.status === 'active' && <button onClick={() => updateStatus(s.id, 'paused')} className="flex-1 py-1.5 text-xs rounded-lg border border-ace-orange/20 text-ace-orange hover:bg-ace-orange/10 transition-colors">Pause</button>}
+                {s.status === 'active' && <button onClick={() => openPauseModal(s.id)} className="flex-1 py-1.5 text-xs rounded-lg border border-ace-orange/20 text-ace-orange hover:bg-ace-orange/10 transition-colors">Pause</button>}
                 {s.status === 'paused' && <button onClick={() => updateStatus(s.id, 'active')} className="flex-1 py-1.5 text-xs rounded-lg border border-ace-green/20 text-ace-green hover:bg-ace-green/10 transition-colors">Resume</button>}
                 {s.status !== 'cancelled' && <button onClick={() => updateStatus(s.id, 'cancelled')} className="flex-1 py-1.5 text-xs rounded-lg border border-ace-red/20 text-ace-red hover:bg-ace-red/10 transition-colors">Cancel</button>}
                 {s.status === 'cancelled' && <button onClick={() => updateStatus(s.id, 'active')} className="flex-1 py-1.5 text-xs rounded-lg border border-ace-green/20 text-ace-green hover:bg-ace-green/10 transition-colors">Reactivate</button>}
@@ -276,7 +308,7 @@ export default function SubscriptionsPage() {
 
               <div>
                 <label className="block text-xs text-ace-muted mb-1">Next Billing Date</label>
-                <input type="date" value={form.next_billing_date} onChange={e => setForm(f => ({ ...f, next_billing_date: e.target.value }))}
+                <input type="date" value={form.next_billing_date} onChange={e => setForm(f => ({ ...f, next_billing_date: e.target.value }))} style={{ colorScheme: 'dark' }}
                   className="w-full bg-ace-bg border border-ace-border rounded-lg px-4 py-2.5 text-ace-text text-sm focus:outline-none focus:border-ace-cyan/50" />
               </div>
 
@@ -337,6 +369,30 @@ export default function SubscriptionsPage() {
               <button onClick={save} disabled={saving || !form.name || !form.amount || (form.scope === 'business' && !form.business_id)}
                 className="flex-1 py-2.5 rounded-lg bg-gradient-to-r from-ace-cyan to-ace-purple text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity">
                 {saving ? 'Saving...' : editId ? 'Save Changes' : 'Add'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pausingId && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-ace-card border border-ace-border rounded-2xl p-6 w-full max-w-sm">
+            <h2 className="text-white font-bold text-lg mb-2">Pause Subscription</h2>
+            <p className="text-ace-muted text-xs mb-4">Optionally pick a date to auto-resume. Some services pause indefinitely; others have a max pause window — set the date that matches your provider.</p>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <button onClick={() => pausePreset(1)} className="py-2 text-xs rounded-lg border border-ace-border text-ace-text hover:border-ace-cyan/40 hover:text-ace-cyan transition-colors">1 month</button>
+              <button onClick={() => pausePreset(3)} className="py-2 text-xs rounded-lg border border-ace-border text-ace-text hover:border-ace-cyan/40 hover:text-ace-cyan transition-colors">3 months</button>
+              <button onClick={() => pausePreset(6)} className="py-2 text-xs rounded-lg border border-ace-border text-ace-text hover:border-ace-cyan/40 hover:text-ace-cyan transition-colors">6 months</button>
+              <button onClick={() => pausePreset(null)} className="py-2 text-xs rounded-lg border border-ace-border text-ace-text hover:border-ace-cyan/40 hover:text-ace-cyan transition-colors">Indefinite</button>
+            </div>
+            <label className="block text-xs text-ace-muted mb-1">Resume on (optional)</label>
+            <input type="date" value={pauseUntil} onChange={e => setPauseUntil(e.target.value)} style={{ colorScheme: 'dark' }}
+              className="w-full bg-ace-bg border border-ace-border rounded-lg px-4 py-2.5 text-ace-text text-sm focus:outline-none focus:border-ace-cyan/50" />
+            <div className="flex gap-3 mt-5">
+              <button onClick={() => { setPausingId(null); setPauseUntil('') }} className="flex-1 py-2.5 rounded-lg border border-ace-border text-ace-muted text-sm hover:text-white transition-colors">Cancel</button>
+              <button onClick={confirmPause} className="flex-1 py-2.5 rounded-lg bg-gradient-to-r from-ace-orange to-ace-purple text-white text-sm font-semibold hover:opacity-90 transition-opacity">
+                {pauseUntil ? `Pause until ${pauseUntil}` : 'Pause indefinitely'}
               </button>
             </div>
           </div>

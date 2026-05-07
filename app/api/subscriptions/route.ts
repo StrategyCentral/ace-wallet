@@ -8,6 +8,17 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const status = searchParams.get('status')
   const db = getDb()
+
+  // Auto-resume any subs whose pause_until date has passed
+  db.prepare(
+    `UPDATE subscriptions
+     SET status = 'active', pause_until = NULL
+     WHERE user_id = ?
+       AND status = 'paused'
+       AND pause_until IS NOT NULL
+       AND pause_until <= date('now')`
+  ).run(user.userId)
+
   let q = `SELECT s.*, b.name AS business_name
            FROM subscriptions s
            LEFT JOIN businesses b ON b.id = s.business_id
@@ -61,17 +72,20 @@ export async function PATCH(req: NextRequest) {
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
     const db = getDb()
 
-    // Status-only update (Pause / Resume / Cancel / Reactivate)
-    if (rest.status && Object.keys(rest).length === 1) {
-      db.prepare('UPDATE subscriptions SET status = ? WHERE id = ? AND user_id = ?')
-        .run(rest.status, id, user.userId)
+    // Status flip with optional pause_until (Pause flow)
+    const keys = Object.keys(rest)
+    if (rest.status && keys.every(k => k === 'status' || k === 'pause_until')) {
+      // Resuming/cancelling clears pause_until automatically
+      const clearPause = rest.status !== 'paused'
+      db.prepare('UPDATE subscriptions SET status = ?, pause_until = ? WHERE id = ? AND user_id = ?')
+        .run(rest.status, clearPause ? null : (rest.pause_until || null), id, user.userId)
       return NextResponse.json({ success: true })
     }
 
-    // Full edit — only allow known columns
+    // Full edit — allow known columns only
     const allowed = [
       'name','amount','billing_cycle','next_billing_date','category','color',
-      'url','notes','scope','business_id','is_tax_deductible','status'
+      'url','notes','scope','business_id','is_tax_deductible','status','pause_until'
     ]
     const sets: string[] = []
     const params: any[] = []
@@ -81,6 +95,7 @@ export async function PATCH(req: NextRequest) {
         if (key === 'scope') value = value === 'business' ? 'business' : 'personal'
         if (key === 'business_id') value = value ? Number(value) : null
         if (key === 'is_tax_deductible') value = value ? 1 : 0
+        if (key === 'pause_until') value = value || null
         sets.push(`${key} = ?`)
         params.push(value)
       }

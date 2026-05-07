@@ -151,6 +151,7 @@ function initSchema(db: Database.Database) {
       scope TEXT DEFAULT 'personal' CHECK(scope IN ('personal','business')),
       is_tax_deductible INTEGER DEFAULT 0,
       status TEXT DEFAULT 'active' CHECK(status IN ('active','paused','cancelled')),
+      pause_until TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE SET NULL
@@ -331,6 +332,7 @@ function runMigrations(db: Database.Database) {
   if (!subCols.includes('account_id')) db.exec("ALTER TABLE subscriptions ADD COLUMN account_id INTEGER")
   if (!subCols.includes('scope')) db.exec("ALTER TABLE subscriptions ADD COLUMN scope TEXT DEFAULT 'personal'")
   if (!subCols.includes('is_tax_deductible')) db.exec("ALTER TABLE subscriptions ADD COLUMN is_tax_deductible INTEGER DEFAULT 0")
+  if (!subCols.includes('pause_until')) db.exec("ALTER TABLE subscriptions ADD COLUMN pause_until TEXT")
 
   // Ensure debts and bucket_assignments tables exist (safe to run multiple times)
   db.exec(`
