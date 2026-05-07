@@ -11,6 +11,39 @@ function monthlyEq(s: any) {
   return s.amount * (m[s.billing_cycle] || 1)
 }
 
+function getDomain(url: string): string | null {
+  if (!url) return null
+  try {
+    const u = new URL(/^https?:\/\//.test(url) ? url : `https://${url}`)
+    return u.hostname.replace(/^www\./, '')
+  } catch { return null }
+}
+
+function getLogoUrl(url?: string | null): string | null {
+  if (!url) return null
+  const domain = getDomain(url)
+  return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=128` : null
+}
+
+function SubLogo({ url, name, color, size = 40 }: { url?: string | null; name: string; color: string; size?: number }) {
+  const [error, setError] = useState(false)
+  const logoUrl = getLogoUrl(url)
+  const px = `${size}px`
+  if (!logoUrl || error || !name) {
+    return (
+      <div className="rounded-xl flex items-center justify-center font-bold flex-shrink-0"
+        style={{ width: px, height: px, backgroundColor: (color || '#8b5cf6') + '20', color: color || '#8b5cf6', fontSize: size * 0.5 }}>
+        {name ? name[0] : '?'}
+      </div>
+    )
+  }
+  return (
+    <img src={logoUrl} alt={name} onError={() => setError(true)}
+      className="rounded-xl object-contain p-1.5 flex-shrink-0"
+      style={{ width: px, height: px, backgroundColor: (color || '#8b5cf6') + '20' }} />
+  )
+}
+
 const emptyForm = () => ({
   name: '',
   amount: '',
@@ -176,10 +209,7 @@ export default function SubscriptionsPage() {
             <div key={s.id} className="bg-ace-card border border-ace-border rounded-xl p-5">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold"
-                    style={{ backgroundColor: (s.color || '#8b5cf6') + '20', color: s.color || '#8b5cf6' }}>
-                    {s.name[0]}
-                  </div>
+                  <SubLogo url={s.url} name={s.name} color={s.color || '#8b5cf6'} />
                   <div>
                     <h3 className="text-white font-semibold">{s.name}</h3>
                     <p className="text-ace-muted text-xs">
@@ -282,8 +312,14 @@ export default function SubscriptionsPage() {
                 </>
               )}
 
-              <input placeholder="URL (optional)" value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
-                className="w-full bg-ace-bg border border-ace-border rounded-lg px-4 py-2.5 text-ace-text text-sm focus:outline-none focus:border-ace-cyan/50" />
+              <div>
+                <label className="block text-xs text-ace-muted mb-1">Website URL <span className="text-ace-muted/60">(used to pull logo)</span></label>
+                <div className="flex items-center gap-3">
+                  <SubLogo url={form.url} name={form.name || 'A'} color={form.color || '#8b5cf6'} size={40} />
+                  <input placeholder="https://netflix.com" value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
+                    className="flex-1 bg-ace-bg border border-ace-border rounded-lg px-4 py-2.5 text-ace-text text-sm focus:outline-none focus:border-ace-cyan/50" />
+                </div>
+              </div>
 
               <div className="flex gap-3">
                 <input placeholder="Category" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
