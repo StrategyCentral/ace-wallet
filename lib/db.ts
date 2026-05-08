@@ -368,7 +368,7 @@ function runMigrations(db: Database.Database) {
   if (!userCols.includes('currency')) db.exec("ALTER TABLE users ADD COLUMN currency TEXT DEFAULT 'AUD'")
 
   // Category mappings for smart auto-categorisation on bank statement imports
-  db.exec(\`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS category_mappings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
@@ -383,5 +383,5 @@ function runMigrations(db: Database.Database) {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
     );
-  \`)
+  `)
 }
