@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
-import { verifyToken } from '@/lib/auth'
+import { getAuthUser } from '@/lib/auth'
 import { getTaxConfig, type TaxFramework } from '@/lib/tax'
 
-function getUser(req: NextRequest) {
-  const token = req.cookies.get('ace_token')?.value
-  if (!token) return null
-  return verifyToken(token)
-}
-
 export async function GET(req: NextRequest) {
-  const user = getUser(req)
+  const user = getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { searchParams } = new URL(req.url)
   const month = searchParams.get('month')
@@ -40,13 +34,18 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const user = getUser(req)
+  const user = getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { type, amount, description, category_id, date, notes, scope, business_id, account_id,
     income_stream_id, is_tax_deductible, gst_inclusive, currency, recurring, recur_interval } = await req.json()
 
-  if (!type || !amount || !description || !date) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+  if (!type || amount === undefined || amount === null || !description || !date) {
+    return NextResponse.json({ error: 'Missing required fields: type, amount, description, and date are required' }, { status: 400 })
+  }
+
+  const numAmount = parseFloat(amount)
+  if (isNaN(numAmount) || numAmount <= 0) {
+    return NextResponse.json({ error: 'Amount must be a positive number' }, { status: 400 })
   }
 
   const db = getDb()
@@ -58,7 +57,7 @@ export async function POST(req: NextRequest) {
     if (biz) {
       const config = getTaxConfig(biz.tax_framework as TaxFramework)
       if (config.rate > 0) {
-        taxAmount = Math.round((amount - amount / (1 + config.rate)) * 100) / 100
+        taxAmount = Math.round((numAmount - numAmount / (1 + config.rate)) * 100) / 100
       }
     }
   }
@@ -67,7 +66,7 @@ export async function POST(req: NextRequest) {
     INSERT INTO transactions (user_id, type, amount, description, category_id, date, notes, scope, business_id, account_id, income_stream_id, is_tax_deductible, gst_inclusive, tax_amount, currency, recurring, recur_interval, recur_start_date)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    user.userId, type, amount, description,
+    user.userId, type, numAmount, description,
     category_id || null, date, notes || '',
     scope || 'personal', business_id || null, account_id || null,
     income_stream_id || null,
@@ -78,11 +77,11 @@ export async function POST(req: NextRequest) {
   )).lastInsertRowid
 
   const transaction = db.prepare('SELECT * FROM transactions WHERE id = ?').get(id)
-  return NextResponse.json({ transaction })
+  return NextResponse.json({ transaction, success: true })
 }
 
 export async function DELETE(req: NextRequest) {
-  const user = getUser(req)
+  const user = getAuthUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await req.json()
   const db = getDb()

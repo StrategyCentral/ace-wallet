@@ -366,4 +366,22 @@ function runMigrations(db: Database.Database) {
   const userCols = (db.prepare("PRAGMA table_info(users)").all() as { name: string }[]).map(r => r.name)
   if (!userCols.includes('country')) db.exec("ALTER TABLE users ADD COLUMN country TEXT DEFAULT 'AU'")
   if (!userCols.includes('currency')) db.exec("ALTER TABLE users ADD COLUMN currency TEXT DEFAULT 'AUD'")
+
+  // Category mappings for smart auto-categorisation on bank statement imports
+  db.exec(\`
+    CREATE TABLE IF NOT EXISTS category_mappings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      description_pattern TEXT NOT NULL,
+      category_id INTEGER NOT NULL,
+      scope TEXT DEFAULT 'personal',
+      type TEXT DEFAULT 'expense',
+      times_used INTEGER DEFAULT 1,
+      last_used TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(user_id, description_pattern),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+    );
+  \`)
 }
