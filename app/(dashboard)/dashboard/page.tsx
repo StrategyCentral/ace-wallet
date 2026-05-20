@@ -7,6 +7,8 @@ interface UpcomingBill { id: number; description: string; amount: number; curren
 interface Subscription { id: number; name: string; amount: number; currency: string; billing_cycle: string; next_billing_date: string; color: string; status: string; scope: string }
 interface Business { id: number; name: string; color: string; currency: string }
 interface Account { id: number; name: string; balance: number; currency: string; account_type: string; color: string }
+interface Bill { id: number; name: string; amount: number; currency: string; scope: string; due_date: string; is_urgent: number; is_paid: number; is_recurring: number; recur_interval: string; category_name: string; color: string; business_name: string; notes: string }
+interface Debt { id: number; name: string; balance: number; interest_rate: number; is_paid_off: number }
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
@@ -16,25 +18,42 @@ export default function DashboardPage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
   const [businesses, setBusinesses] = useState<Business[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
+  const [bills, setBills] = useState<Bill[]>([])
+  const [debts, setDebts] = useState<Debt[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
-    const [tr, sr, br, ar, ur] = await Promise.all([
+    const [tr, sr, br, ar, ur, blr, dr] = await Promise.all([
       fetch('/api/transactions'),
       fetch('/api/subscriptions'),
       fetch('/api/businesses'),
       fetch('/api/accounts'),
       fetch('/api/transactions/upcoming'),
+      fetch('/api/bills?status=unpaid'),
+      fetch('/api/debts'),
     ])
-    const [td, sd, bd, ad, ud] = await Promise.all([tr.json(), sr.json(), br.json(), ar.json(), ur.json()])
+    const [td, sd, bd, ad, ud, bld, dd] = await Promise.all([tr.json(), sr.json(), br.json(), ar.json(), ur.json(), blr.json(), dr.json()])
     setTransactions(td.transactions || [])
     setSubscriptions(sd.subscriptions || [])
     setBusinesses(bd.businesses || [])
     setAccounts(ad.accounts || [])
     setUpcomingBills(ud.upcoming || [])
+    setBills(bld.bills || [])
+    setDebts(dd.debts || [])
     setLoading(false)
+  }
+
+  async function markBillPaid(id: number) {
+    const bill = bills.find(b => b.id === id)
+    if (!bill) return
+    await fetch('/api/bills', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...bill, id, is_paid: 1 }),
+    })
+    fetchAll()
   }
 
   const now = new Date()
@@ -73,7 +92,7 @@ export default function DashboardPage() {
     return { ...b, income, expenses, profit: income - expenses }
   })
 
-  // Merge upcoming recurring bills + subscriptions into one list
+  // Merge upcoming recurring bills + subscriptions
   const upcomingSubscriptions = subscriptions
     .filter(s => s.status === 'active')
     .map(s => {
@@ -81,28 +100,50 @@ export default function DashboardPage() {
       const daysUntil = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
       return { id: `sub-${s.id}`, name: s.name, amount: s.amount, currency: s.currency,
         interval: s.billing_cycle, next_due_date: s.next_billing_date, days_until: daysUntil,
-        color: s.color, type: 'subscription' as const, scope: s.scope }
+        color: s.color, type: 'subscription' as const, scope: s.scope, is_urgent: false }
     })
     .filter(s => s.days_until <= 60)
 
   const upcomingRecurring = upcomingBills.map(b => ({
     id: `tx-${b.id}`, name: b.description, amount: b.amount, currency: b.currency,
     interval: b.recur_interval, next_due_date: b.next_due_date, days_until: b.days_until,
-    color: b.color || '#8b5cf6', type: b.type as 'income' | 'expense', scope: b.scope
+    color: b.color || '#8b5cf6', type: b.type as 'income' | 'expense', scope: b.scope, is_urgent: false,
   }))
 
-  const allUpcoming = [...upcomingSubscriptions, ...upcomingRecurring]
-    .sort((a, b) => a.days_until - b.days_until)
-    .slice(0, 8)
+  // Add explicit bills to the upcoming list
+  const upcomingExplicitBills = bills
+    .filter(b => !b.is_paid)
+    .map(b => {
+      const due = new Date(b.due_date)
+      const daysUntil = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      return {
+        id: `bill-${b.id}`, name: b.name, amount: b.amount, currency: b.currency,
+        interval: b.is_recurring ? b.recur_interval : 'once', next_due_date: b.due_date,
+        days_until: daysUntil, color: b.color || '#f59e0b', type: 'expense' as const,
+        scope: b.scope, is_urgent: !!b.is_urgent, bill_id: b.id,
+      }
+    })
+
+  const allUpcoming = [...upcomingExplicitBills, ...upcomingSubscriptions, ...upcomingRecurring]
+    .sort((a, b) => {
+      // Urgent first, then by date
+      if (a.is_urgent && !b.is_urgent) return -1
+      if (!a.is_urgent && b.is_urgent) return 1
+      return a.days_until - b.days_until
+    })
+    .slice(0, 12)
 
   const totalAccountBalance = accounts.reduce((s, a) => s + a.balance, 0)
   const personalBalance = accounts.filter(a => a.account_type === 'personal').reduce((s, a) => s + a.balance, 0)
   const businessBalance = accounts.filter(a => a.account_type === 'business').reduce((s, a) => s + a.balance, 0)
+  const totalDebt = debts.filter(d => !d.is_paid_off).reduce((s, d) => s + d.balance, 0)
 
   const fmt = (n: number, cur = 'AUD') => `${cur} ${Math.abs(n).toLocaleString('en-AU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 
-  function daysBadge(days: number) {
+  function daysBadge(days: number, urgent: boolean) {
+    if (urgent) return <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/30 text-red-300 border border-red-500/50 font-bold animate-pulse">🔴 URGENT</span>
     if (days <= 0) return <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">Today</span>
+    if (days < 0) return <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/30 text-red-300 border border-red-500/40 font-bold">OVERDUE</span>
     if (days <= 3) return <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">{days}d</span>
     if (days <= 7) return <span className="text-xs px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20">{days}d</span>
     if (days <= 14) return <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">{days}d</span>
@@ -122,10 +163,11 @@ export default function DashboardPage() {
       <div className="bg-ace-card border border-ace-border rounded-xl p-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-white font-semibold">Net Worth</h2>
-          <p className="text-2xl font-bold text-ace-cyan">{fmt(totalAccountBalance)}</p>
+          <p className="text-2xl font-bold text-ace-cyan">{fmt(totalAccountBalance - totalDebt)}</p>
         </div>
-        <div className="flex gap-4 text-sm">
-          <span className="text-ace-muted">Personal: <span className="text-white font-medium">{fmt(personalBalance)}</span></span>
+        <div className="flex gap-4 text-sm flex-wrap">
+          <span className="text-ace-muted">Accounts: <span className="text-white font-medium">{fmt(totalAccountBalance)}</span></span>
+          {totalDebt > 0 && <span className="text-ace-muted">Debts: <span className="text-red-400 font-medium">-{fmt(totalDebt)}</span></span>}
           {businesses.length > 0 && <span className="text-ace-muted">Business: <span className="text-white font-medium">{fmt(businessBalance)}</span></span>}
         </div>
         {accounts.length > 0 && (
@@ -221,34 +263,50 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Upcoming Bills — full width */}
+      {/* Upcoming Bills — full width, now with explicit bills */}
       <div className="bg-ace-card border border-ace-border rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-white font-semibold">Upcoming Bills</h3>
+          <h3 className="text-white font-semibold">Upcoming Bills & Payments</h3>
           <span className="text-ace-muted text-xs">Next 60 days</span>
         </div>
         {allUpcoming.length === 0 ? (
-          <p className="text-ace-muted text-sm">No upcoming bills. Add recurring transactions or subscriptions to see them here.</p>
+          <p className="text-ace-muted text-sm">No upcoming bills. Add bills from the Transactions page or set up recurring transactions.</p>
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {allUpcoming.map(item => (
-              <div key={item.id} className="flex items-center justify-between p-3 rounded-xl bg-ace-bg border border-ace-border">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-2 h-2 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: item.type === 'income' ? '#10b981' : item.type === 'subscription' ? item.color : '#ef4444' }} />
-                  <div className="min-w-0">
-                    <p className="text-white text-xs font-medium truncate">{item.name}</p>
-                    <p className="text-ace-muted text-xs">{item.next_due_date} · {item.interval}</p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {allUpcoming.map(item => {
+              const isUrgent = 'is_urgent' in item && item.is_urgent
+              const isBill = item.id.toString().startsWith('bill-')
+              return (
+                <div key={item.id} className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                  isUrgent
+                    ? 'bg-red-500/10 border-red-500/40 shadow-lg shadow-red-500/10'
+                    : 'bg-ace-bg border-ace-border'
+                } ${isUrgent ? 'animate-pulse' : ''}`}
+                  style={isUrgent ? { boxShadow: '0 0 12px rgba(239,68,68,0.3)' } : {}}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: isUrgent ? '#ef4444' : item.type === 'income' ? '#10b981' : item.type === 'subscription' ? item.color : '#ef4444' }} />
+                    <div className="min-w-0">
+                      <p className={`text-xs font-medium truncate ${isUrgent ? 'text-red-300' : 'text-white'}`}>{item.name}</p>
+                      <p className="text-ace-muted text-xs">{item.next_due_date} · {item.interval}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
+                    <span className={`text-xs font-semibold ${item.type === 'income' ? 'text-green-400' : 'text-red-400'}`}>
+                      {item.type === 'income' ? '+' : '-'}{item.currency} {item.amount.toLocaleString()}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {daysBadge(item.days_until, isUrgent)}
+                      {isBill && (
+                        <button onClick={() => markBillPaid(parseInt(item.id.toString().replace('bill-', '')))}
+                          className="text-xs px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-colors"
+                          title="Mark as paid">✓</button>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
-                  <span className={`text-xs font-semibold ${item.type === 'income' ? 'text-green-400' : 'text-red-400'}`}>
-                    {item.type === 'income' ? '+' : '-'}{item.currency} {item.amount.toLocaleString()}
-                  </span>
-                  {daysBadge(item.days_until)}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

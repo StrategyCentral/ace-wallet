@@ -384,4 +384,68 @@ function runMigrations(db: Database.Database) {
       FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
     );
   `)
-}
+
+  // ── Assets table ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS assets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      business_id INTEGER,
+      name TEXT NOT NULL,
+      type TEXT DEFAULT 'other' CHECK(type IN ('crypto','shares','real_estate','vehicle','artwork','overpaid_rent','collectible','cash_reserve','other')),
+      scope TEXT DEFAULT 'personal' CHECK(scope IN ('personal','business')),
+      purchase_price REAL DEFAULT 0,
+      current_value REAL DEFAULT 0,
+      quantity REAL DEFAULT 1,
+      ticker_symbol TEXT,
+      currency TEXT DEFAULT 'AUD',
+      date_acquired TEXT,
+      alert_above REAL,
+      alert_below REAL,
+      notes TEXT,
+      color TEXT DEFAULT '#10b981',
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE SET NULL
+    );
+  `)
+
+  // ── Bills table ──
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bills (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      business_id INTEGER,
+      name TEXT NOT NULL,
+      amount REAL NOT NULL,
+      currency TEXT DEFAULT 'AUD',
+      scope TEXT DEFAULT 'personal' CHECK(scope IN ('personal','business')),
+      category_id INTEGER,
+      due_date TEXT NOT NULL,
+      is_recurring INTEGER DEFAULT 0,
+      recur_interval TEXT,
+      is_urgent INTEGER DEFAULT 0,
+      is_paid INTEGER DEFAULT 0,
+      paid_date TEXT,
+      matched_transaction_id INTEGER,
+      notes TEXT,
+      color TEXT DEFAULT '#f59e0b',
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE SET NULL,
+      FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+      FOREIGN KEY (matched_transaction_id) REFERENCES transactions(id) ON DELETE SET NULL
+    );
+  `)
+
+  // ── Debt migrations: add scope, business_id, and complex fee fields ──
+  const debtCols = (db.prepare("PRAGMA table_info(debts)").all() as { name: string }[]).map(r => r.name)
+  if (!debtCols.includes('scope')) db.exec("ALTER TABLE debts ADD COLUMN scope TEXT DEFAULT 'personal'")
+  if (!debtCols.includes('business_id')) db.exec("ALTER TABLE debts ADD COLUMN business_id INTEGER")
+  if (!debtCols.includes('interest_free_months')) db.exec("ALTER TABLE debts ADD COLUMN interest_free_months INTEGER DEFAULT 0")
+  if (!debtCols.includes('annual_fee')) db.exec("ALTER TABLE debts ADD COLUMN annual_fee REAL DEFAULT 0")
+  if (!debtCols.includes('monthly_fee')) db.exec("ALTER TABLE debts ADD COLUMN monthly_fee REAL DEFAULT 0")
+  if (!debtCols.includes('fee_interest_rate')) db.exec("ALTER TABLE debts ADD COLUMN fee_interest_rate REAL DEFAULT 0")
+  if (!debtCols.includes('payment_allocation')) db.exec("ALTER TABLE debts ADD COLUMN payment_allocation TEXT DEFAULT 'purchase_first'")
+  if (!debtCols.includes('promo_end_date')) db.exec("ALTER TABLE debts ADD COLUMN promo_end_date TEXT")
+  if (!debtCols.includes('accrued_fees')) db.exec("ALTER TABLE debts ADD COLUMN accrued_fees REAL DEFAULT 0")

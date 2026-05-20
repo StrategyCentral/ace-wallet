@@ -19,6 +19,7 @@ const NAV_GROUPS = [
     items: [
       { href: '/buckets', label: 'Buckets', icon: '🪣' },
       { href: '/debts', label: 'Debts', icon: '🎳' },
+      { href: '/assets', label: 'Assets', icon: '💰' },
       { href: '/resources', label: 'Resources', icon: '📚' },
     ]
   },
