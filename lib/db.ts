@@ -256,13 +256,19 @@ function initSchema(db: Database.Database) {
     );
   `)
 
+  // First-run admin seed: ONLY from env. No hard-coded credentials.
   const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }
-  if (userCount.c === 0) {
+  const seedEmail = process.env.ADMIN_EMAIL?.trim()
+  const seedPassword = process.env.ADMIN_PASSWORD
+  if (userCount.c === 0 && (!seedEmail || !seedPassword)) {
+    console.warn('[db] users table is empty and ADMIN_EMAIL/ADMIN_PASSWORD are not set; skipping admin seed')
+  }
+  if (userCount.c === 0 && seedEmail && seedPassword) {
     const bcrypt = require('bcryptjs')
-    const hash = bcrypt.hashSync('ace2024!', 10)
+    const hash = bcrypt.hashSync(seedPassword, 10)
     const userId = (db.prepare(
       "INSERT INTO users (email, name, password_hash, role) VALUES (?, ?, ?, 'admin')"
-    ).run('admin@acewallet.com', 'Admin', hash)).lastInsertRowid as number
+    ).run(seedEmail, 'Admin', hash)).lastInsertRowid as number
 
     const bizId = (db.prepare(
       "INSERT INTO businesses (owner_id, name, country, currency, tax_framework) VALUES (?, ?, 'AU', 'AUD', 'AU_GST')"
@@ -308,6 +314,33 @@ function initSchema(db: Database.Database) {
   }
 
   runMigrations(db)
+  retireLegacyDefaultPassword(db)
+}
+
+// The old code seeded admin@acewallet.com with a password that is public in
+// git history. If any admin still uses it, replace it from
+// WALLET_ADMIN_RESET_PASSWORD, or warn loudly. The password is never logged.
+const LEGACY_DEFAULT_PASSWORD = 'ace2024!'
+
+function retireLegacyDefaultPassword(db: Database.Database) {
+  try {
+    const bcrypt = require('bcryptjs')
+    const rows = db.prepare(
+      "SELECT id, email, password_hash FROM users WHERE role = 'admin' OR email = 'admin@acewallet.com'"
+    ).all() as { id: number; email: string; password_hash: string }[]
+    const reset = process.env.WALLET_ADMIN_RESET_PASSWORD
+    for (const r of rows) {
+      if (!bcrypt.compareSync(LEGACY_DEFAULT_PASSWORD, r.password_hash)) continue
+      if (reset && reset.length >= 12 && reset !== LEGACY_DEFAULT_PASSWORD) {
+        db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(reset, 10), r.id)
+        console.warn(`[security] default password replaced for user id ${r.id} from WALLET_ADMIN_RESET_PASSWORD`)
+      } else {
+        console.warn(`[security] user id ${r.id} still uses the old default password. Set WALLET_ADMIN_RESET_PASSWORD (12+ chars) and restart, or change it in Settings.`)
+      }
+    }
+  } catch (e) {
+    console.error('[security] legacy default password check failed', e)
+  }
 }
 
 function runMigrations(db: Database.Database) {
@@ -449,3 +482,4 @@ function runMigrations(db: Database.Database) {
   if (!debtCols.includes('payment_allocation')) db.exec("ALTER TABLE debts ADD COLUMN payment_allocation TEXT DEFAULT 'purchase_first'")
   if (!debtCols.includes('promo_end_date')) db.exec("ALTER TABLE debts ADD COLUMN promo_end_date TEXT")
   if (!debtCols.includes('accrued_fees')) db.exec("ALTER TABLE debts ADD COLUMN accrued_fees REAL DEFAULT 0")
+}

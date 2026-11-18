@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
+import { checkRefs } from '@/lib/ownership'
 
 function getUser(req: NextRequest) {
   const token = req.cookies.get('ace_token')?.value
@@ -28,6 +29,8 @@ export async function POST(req: NextRequest) {
   const { name, account_type, type, currency, balance, color, institution, last_four, notes, business_id } = await req.json()
   if (!name) return NextResponse.json({ error: 'Name required' }, { status: 400 })
   const db = getDb()
+  const refErr = checkRefs(db, user.userId, { business_id })
+  if (refErr) return NextResponse.json({ error: refErr }, { status: 400 })
   const id = (db.prepare(`
     INSERT INTO accounts (user_id, business_id, name, account_type, type, currency, balance, color, institution, last_four, notes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -43,10 +46,12 @@ export async function PATCH(req: NextRequest) {
   const { id, name, account_type, type, currency, balance, color, institution, last_four, notes, business_id } = await req.json()
   if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 })
   const db = getDb()
+  const refErr = checkRefs(db, user.userId, { business_id })
+  if (refErr) return NextResponse.json({ error: refErr }, { status: 400 })
   db.prepare(`UPDATE accounts SET name=?, account_type=?, type=?, currency=?, balance=?, color=?, institution=?, last_four=?, notes=?, business_id=? WHERE id=? AND user_id=?`)
     .run(name, account_type || 'personal', type || 'checking', currency || 'AUD', balance || 0,
       color || '#8b5cf6', institution || '', last_four || '', notes || '', business_id || null, id, user.userId)
-  const account = db.prepare('SELECT * FROM accounts WHERE id = ?').get(id)
+  const account = db.prepare('SELECT * FROM accounts WHERE id = ? AND user_id = ?').get(id, user.userId)
   return NextResponse.json({ account })
 }
 

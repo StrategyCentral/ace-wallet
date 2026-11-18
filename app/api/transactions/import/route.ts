@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { getAuthUser } from '@/lib/auth'
+import { ownsRow } from '@/lib/ownership'
 
 interface ImportRow {
   date: string
@@ -97,6 +98,13 @@ export async function PUT(req: NextRequest) {
   }
 
   const db = getDb()
+  if (account_id && !ownsRow(db, 'accounts', account_id, user.userId)) {
+    return NextResponse.json({ error: 'Account not found' }, { status: 400 })
+  }
+  // Only the caller's own categories may be attached; anything else is dropped.
+  const ownCategoryIds = new Set(
+    (db.prepare('SELECT id FROM categories WHERE user_id = ?').all(user.userId) as { id: number }[]).map(c => c.id)
+  )
   const insertTx = db.prepare(`
     INSERT INTO transactions (user_id, type, amount, description, category_id, date, scope, account_id, currency, notes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'AUD', 'Imported from bank statement')
@@ -116,6 +124,7 @@ export async function PUT(req: NextRequest) {
   const runAll = db.transaction(() => {
     for (const row of approved) {
       const rowScope = row.scope || scope || 'personal'
+      if (row.category_id && !ownCategoryIds.has(Number(row.category_id))) row.category_id = null
       insertTx.run(
         user.userId, row.type, Math.abs(row.amount), row.description,
         row.category_id || null, row.date, rowScope, account_id || null

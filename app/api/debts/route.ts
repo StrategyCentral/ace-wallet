@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
+import { checkRefs } from '@/lib/ownership'
 
 function getUser(req: NextRequest) {
   const token = req.cookies.get('ace_token')?.value
@@ -26,6 +27,8 @@ export async function POST(req: NextRequest) {
     payment_allocation, promo_end_date, accrued_fees } = await req.json()
   if (!name || !balance || !minimum_payment) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
   const db = getDb()
+  const refErr = checkRefs(db, user.userId, { business_id })
+  if (refErr) return NextResponse.json({ error: refErr }, { status: 400 })
   const id = (db.prepare(`
     INSERT INTO debts (user_id, name, type, balance, original_balance, interest_rate, minimum_payment,
       due_day, lender, color, scope, business_id, interest_free_months, annual_fee, monthly_fee,
@@ -51,6 +54,8 @@ export async function PATCH(req: NextRequest) {
     payment_allocation, promo_end_date, accrued_fees } = await req.json()
   if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 })
   const db = getDb()
+  const refErr = checkRefs(db, user.userId, { business_id })
+  if (refErr) return NextResponse.json({ error: refErr }, { status: 400 })
   const paid_off_date = is_paid_off ? new Date().toISOString().split('T')[0] : null
   db.prepare(`UPDATE debts SET name=?, type=?, balance=?, interest_rate=?, minimum_payment=?, due_day=?,
     lender=?, color=?, is_paid_off=?, paid_off_date=?, scope=?, business_id=?,
@@ -64,7 +69,7 @@ export async function PATCH(req: NextRequest) {
       fee_interest_rate || 0, payment_allocation || 'purchase_first',
       promo_end_date || null, accrued_fees || 0,
       id, user.userId)
-  const debt = db.prepare('SELECT * FROM debts WHERE id = ?').get(id)
+  const debt = db.prepare('SELECT * FROM debts WHERE id = ? AND user_id = ?').get(id, user.userId)
   return NextResponse.json({ debt })
 }
 

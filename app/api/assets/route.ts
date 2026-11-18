@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
+import { checkRefs } from '@/lib/ownership'
 
 function getUser(req: NextRequest) {
   const token = req.cookies.get('ace_token')?.value
@@ -26,6 +27,8 @@ export async function POST(req: NextRequest) {
     ticker_symbol, currency, date_acquired, alert_above, alert_below, notes, color } = body
   if (!name) return NextResponse.json({ error: 'Name required' }, { status: 400 })
   const db = getDb()
+  const refErr = checkRefs(db, user.userId, { business_id })
+  if (refErr) return NextResponse.json({ error: refErr }, { status: 400 })
   const id = (db.prepare(`
     INSERT INTO assets (user_id, business_id, name, type, scope, purchase_price, current_value, quantity,
       ticker_symbol, currency, date_acquired, alert_above, alert_below, notes, color)
@@ -49,6 +52,8 @@ export async function PATCH(req: NextRequest) {
     ticker_symbol, currency, date_acquired, alert_above, alert_below, notes, color } = body
   if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 })
   const db = getDb()
+  const refErr = checkRefs(db, user.userId, { business_id })
+  if (refErr) return NextResponse.json({ error: refErr }, { status: 400 })
   db.prepare(`
     UPDATE assets SET name=?, type=?, scope=?, business_id=?, purchase_price=?, current_value=?, quantity=?,
       ticker_symbol=?, currency=?, date_acquired=?, alert_above=?, alert_below=?, notes=?, color=?
@@ -61,7 +66,7 @@ export async function PATCH(req: NextRequest) {
     alert_above || null, alert_below || null, notes || null, color || '#10b981',
     id, user.userId
   )
-  const asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(id)
+  const asset = db.prepare('SELECT * FROM assets WHERE id = ? AND user_id = ?').get(id, user.userId)
   return NextResponse.json({ asset })
 }
 
