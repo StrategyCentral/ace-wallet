@@ -23,6 +23,20 @@ export default function SettingsPage() {
     fetch('/api/categories').then(r => r.json()).then(d => setCats(d.categories || []))
   }
 
+  async function changePassword(e: React.FormEvent) {
+    e.preventDefault()
+    setPwMsg('')
+    if (pwForm.next.length < 12) { setPwMsg('New password must be at least 12 characters'); return }
+    if (pwForm.next !== pwForm.confirm) { setPwMsg('New passwords do not match'); return }
+    const r = await fetch('/api/auth/change-password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: pwForm.current, new_password: pwForm.next }),
+    })
+    const d = await r.json().catch(() => ({}))
+    if (r.ok) { setPwForm({ current: '', next: '', confirm: '' }); setPwMsg('Password changed') }
+    else setPwMsg(d.error || 'Could not change password')
+  }
+
   const incomeCats = cats.filter(c => c.type === 'income')
   const expenseCats = cats.filter(c => c.type === 'expense')
 
@@ -48,6 +62,24 @@ export default function SettingsPage() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Password */}
+      <div className="bg-ace-card border border-ace-border rounded-xl p-5 mb-6">
+        <h2 className="text-white font-semibold mb-4">Change password</h2>
+        <form onSubmit={changePassword} className="space-y-3 max-w-sm">
+          <input type="password" autoComplete="current-password" placeholder="Current password" value={pwForm.current}
+            onChange={e => setPwForm({ ...pwForm, current: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-ace-bg border border-ace-border text-white text-sm" />
+          <input type="password" autoComplete="new-password" placeholder="New password (12+ characters)" value={pwForm.next}
+            onChange={e => setPwForm({ ...pwForm, next: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-ace-bg border border-ace-border text-white text-sm" />
+          <input type="password" autoComplete="new-password" placeholder="Confirm new password" value={pwForm.confirm}
+            onChange={e => setPwForm({ ...pwForm, confirm: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-ace-bg border border-ace-border text-white text-sm" />
+          <button type="submit" className="text-sm px-3 py-1.5 rounded-lg bg-ace-cyan/10 text-ace-cyan border border-ace-cyan/20 hover:bg-ace-cyan/20 transition-colors">Update password</button>
+          {pwMsg && <p className="text-ace-muted text-xs">{pwMsg}</p>}
+        </form>
       </div>
 
       {/* Categories */}

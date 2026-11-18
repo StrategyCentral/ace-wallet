@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
+import { checkRefs } from '@/lib/ownership'
 
 function getUser(req: NextRequest) {
   const token = req.cookies.get('ace_token')?.value
@@ -40,6 +41,8 @@ export async function POST(req: NextRequest) {
     is_recurring, recur_interval, is_urgent, notes, color } = body
   if (!name || !amount || !due_date) return NextResponse.json({ error: 'Name, amount, and due date required' }, { status: 400 })
   const db = getDb()
+  const refErr = checkRefs(db, user.userId, { business_id, category_id })
+  if (refErr) return NextResponse.json({ error: refErr }, { status: 400 })
   const id = (db.prepare(`
     INSERT INTO bills (user_id, business_id, name, amount, currency, scope, category_id, due_date,
       is_recurring, recur_interval, is_urgent, notes, color)
@@ -63,6 +66,11 @@ export async function PATCH(req: NextRequest) {
     is_recurring, recur_interval, is_urgent, is_paid, paid_date, matched_transaction_id, notes, color } = body
   if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 })
   const db = getDb()
+  const refErr = checkRefs(db, user.userId, { business_id, category_id })
+  if (refErr) return NextResponse.json({ error: refErr }, { status: 400 })
+  if (matched_transaction_id && !db.prepare('SELECT 1 FROM transactions WHERE id = ? AND user_id = ?').get(matched_transaction_id, user.userId)) {
+    return NextResponse.json({ error: 'Transaction not found' }, { status: 400 })
+  }
   db.prepare(`
     UPDATE bills SET name=?, amount=?, currency=?, scope=?, business_id=?, category_id=?, due_date=?,
       is_recurring=?, recur_interval=?, is_urgent=?, is_paid=?, paid_date=?, matched_transaction_id=?, notes=?, color=?
@@ -77,7 +85,7 @@ export async function PATCH(req: NextRequest) {
     matched_transaction_id || null, notes || null, color || '#f59e0b',
     id, user.userId
   )
-  const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(id)
+  const bill = db.prepare('SELECT * FROM bills WHERE id = ? AND user_id = ?').get(id, user.userId)
   return NextResponse.json({ bill })
 }
 

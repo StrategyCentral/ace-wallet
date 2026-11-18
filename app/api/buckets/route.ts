@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
+import { ownsRow } from '@/lib/ownership'
 
 function getUser(req: NextRequest) {
   const token = req.cookies.get('ace_token')?.value
@@ -15,7 +16,7 @@ export async function GET(req: NextRequest) {
   const assignments = db.prepare(`
     SELECT ba.*, a.name as account_name, a.balance, a.currency, a.color as account_color, a.type as account_kind
     FROM bucket_assignments ba
-    JOIN accounts a ON a.id = ba.account_id
+    JOIN accounts a ON a.id = ba.account_id AND a.user_id = ba.user_id
     WHERE ba.user_id = ?
   `).all(user.userId)
   return NextResponse.json({ assignments })
@@ -27,6 +28,7 @@ export async function POST(req: NextRequest) {
   const { account_id, bucket } = await req.json()
   if (!account_id || !bucket) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
   const db = getDb()
+  if (!ownsRow(db, 'accounts', account_id, user.userId)) return NextResponse.json({ error: 'Account not found' }, { status: 404 })
   db.prepare(`
     INSERT INTO bucket_assignments (user_id, account_id, bucket)
     VALUES (?, ?, ?)

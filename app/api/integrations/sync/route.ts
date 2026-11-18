@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
+import { safeFetch, UnsafeUrlError } from '@/lib/safe-fetch'
 
 function getUser(req: NextRequest) {
   const token = req.cookies.get('ace_token')?.value
@@ -35,7 +36,8 @@ async function syncStripe(integrationId: number, businessId: number, creds: Reco
     }
     return { imported }
   } catch (e: unknown) {
-    return { error: String(e) }
+    if (e instanceof UnsafeUrlError) return { error: e.message }
+    return { error: 'Sync request failed' }
   }
 }
 
@@ -81,7 +83,8 @@ async function syncPayPal(integrationId: number, businessId: number, creds: Reco
     }
     return { imported }
   } catch (e: unknown) {
-    return { error: String(e) }
+    if (e instanceof UnsafeUrlError) return { error: e.message }
+    return { error: 'Sync request failed' }
   }
 }
 
@@ -90,7 +93,8 @@ async function syncWooCommerce(integrationId: number, businessId: number, creds:
   if (!store_url || !consumer_key || !consumer_secret) return { error: 'Missing credentials' }
   try {
     const auth = Buffer.from(`${consumer_key}:${consumer_secret}`).toString('base64')
-    const res = await fetch(`${store_url.replace(/\/$/, '')}/wp-json/wc/v3/orders?per_page=100&status=completed`, {
+    // SSRF guard: https only, public addresses only, redirects re-checked.
+    const res = await safeFetch(`${String(store_url).trim().replace(/\/$/, '')}/wp-json/wc/v3/orders?per_page=100&status=completed`, {
       headers: { Authorization: `Basic ${auth}` }
     })
     if (!res.ok) return { error: `WooCommerce error: ${res.status}` }
@@ -114,7 +118,8 @@ async function syncWooCommerce(integrationId: number, businessId: number, creds:
     }
     return { imported }
   } catch (e: unknown) {
-    return { error: String(e) }
+    if (e instanceof UnsafeUrlError) return { error: e.message }
+    return { error: 'Sync request failed' }
   }
 }
 
@@ -122,9 +127,12 @@ async function syncShopify(integrationId: number, businessId: number, creds: Rec
   const { shop_domain, access_token } = creds
   if (!shop_domain || !access_token) return { error: 'Missing shop_domain or access_token' }
   try {
-    const res = await fetch(
-      `https://${shop_domain.replace(/\/$/, '')}/admin/api/2024-01/orders.json?status=paid&limit=100`,
-      { headers: { 'X-Shopify-Access-Token': access_token } }
+    const domain = String(shop_domain).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '')
+    if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(domain)) return { error: 'shop_domain must be your-store.myshopify.com' }
+    const res = await safeFetch(
+      `https://${domain}/admin/api/2024-01/orders.json?status=paid&limit=100`,
+      { headers: { 'X-Shopify-Access-Token': access_token } },
+      { hostSuffix: '.myshopify.com', maxRedirects: 0 }
     )
     if (!res.ok) return { error: `Shopify error: ${res.status}` }
     const { orders } = await res.json()
@@ -147,7 +155,8 @@ async function syncShopify(integrationId: number, businessId: number, creds: Rec
     }
     return { imported }
   } catch (e: unknown) {
-    return { error: String(e) }
+    if (e instanceof UnsafeUrlError) return { error: e.message }
+    return { error: 'Sync request failed' }
   }
 }
 
