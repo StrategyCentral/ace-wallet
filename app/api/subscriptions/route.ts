@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { getAuthUser } from '@/lib/auth'
+import { checkRefs } from '@/lib/ownership'
 
 export async function GET(req: NextRequest) {
   const user = getAuthUser()
@@ -39,6 +40,8 @@ export async function POST(req: NextRequest) {
       scope, business_id, is_tax_deductible
     } = body
     const db = getDb()
+    const refErr = checkRefs(db, user.userId, { business_id: scope === 'business' ? business_id : null })
+    if (refErr) return NextResponse.json({ error: refErr }, { status: 400 })
     const result = db.prepare(
       `INSERT INTO subscriptions
         (user_id, name, amount, billing_cycle, next_billing_date, category, color, url, notes, scope, business_id, is_tax_deductible)
@@ -71,6 +74,8 @@ export async function PATCH(req: NextRequest) {
     const { id, ...rest } = body
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
     const db = getDb()
+    const refErr = checkRefs(db, user.userId, { business_id: rest.business_id })
+    if (refErr) return NextResponse.json({ error: refErr }, { status: 400 })
 
     // Status flip with optional pause_until (Pause flow)
     const keys = Object.keys(rest)

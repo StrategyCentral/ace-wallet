@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { getAuthUser } from '@/lib/auth'
+import { checkRefs } from '@/lib/ownership'
 import { getTaxConfig, type TaxFramework } from '@/lib/tax'
 
 export async function GET(req: NextRequest) {
@@ -49,6 +50,8 @@ export async function POST(req: NextRequest) {
   }
 
   const db = getDb()
+  const refErr = checkRefs(db, user.userId, { business_id, account_id, category_id, income_stream_id })
+  if (refErr) return NextResponse.json({ error: refErr }, { status: 400 })
 
   // Calculate tax amount if GST inclusive
   let taxAmount = 0

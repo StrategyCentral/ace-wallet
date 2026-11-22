@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/lib/db'
 import { verifyToken } from '@/lib/auth'
+import { checkRefs } from '@/lib/ownership'
 
 function getUser(req: NextRequest) {
   const token = req.cookies.get('ace_token')?.value
@@ -28,6 +29,8 @@ export async function POST(req: NextRequest) {
   const { name, description, color, icon, business_id } = await req.json()
   if (!name) return NextResponse.json({ error: 'Name required' }, { status: 400 })
   const db = getDb()
+  const refErr = checkRefs(db, user.userId, { business_id })
+  if (refErr) return NextResponse.json({ error: refErr }, { status: 400 })
   const id = (db.prepare(`
     INSERT INTO income_streams (user_id, business_id, name, description, color, icon)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -42,9 +45,11 @@ export async function PATCH(req: NextRequest) {
   const { id, name, description, color, icon, business_id, is_active } = await req.json()
   if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 })
   const db = getDb()
+  const refErr = checkRefs(db, user.userId, { business_id })
+  if (refErr) return NextResponse.json({ error: refErr }, { status: 400 })
   db.prepare(`UPDATE income_streams SET name=?, description=?, color=?, icon=?, business_id=?, is_active=? WHERE id=? AND user_id=?`)
     .run(name, description || '', color || '#00d4ff', icon || 'trending-up', business_id || null, is_active ?? 1, id, user.userId)
-  const stream = db.prepare('SELECT * FROM income_streams WHERE id = ?').get(id)
+  const stream = db.prepare('SELECT * FROM income_streams WHERE id = ? AND user_id = ?').get(id, user.userId)
   return NextResponse.json({ stream })
 }
 

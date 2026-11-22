@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { getDb } from '@/lib/db'
-import { signToken } from '@/lib/auth'
+import { signToken, authCookieOptions } from '@/lib/auth'
+import { rateLimit, clientIp } from '@/lib/rate-limit'
 
 export async function POST(req: NextRequest) {
   try {
+    if (!rateLimit(`register:${clientIp(req.headers)}`, 5, 60 * 60 * 1000)) {
+      return NextResponse.json({ error: 'Too many sign-ups from this address. Try again later.' }, { status: 429 })
+    }
     const { email, name, password } = await req.json()
     if (!email || !name || !password) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
@@ -34,9 +38,10 @@ export async function POST(req: NextRequest) {
 
     const token = signToken({ userId, email, role: 'user' })
     const res = NextResponse.json({ success: true })
-    res.cookies.set('ace_token', token, { httpOnly: true, secure: false, sameSite: 'lax', maxAge: 60 * 60 * 24 * 7, path: '/' })
+    res.cookies.set('ace_token', token, authCookieOptions())
     return res
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 })
+    console.error('[register]', e)
+    return NextResponse.json({ error: 'Registration failed' }, { status: 500 })
   }
 }
